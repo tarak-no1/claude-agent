@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Build universal macOS binary
+        run: |
+          mkdir -p dist
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o dist/claude-agent-arm64 ./cmd/agent
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o dist/claude-agent-amd64 ./cmd/agent
+          lipo -create -output dist/claude-agent dist/claude-agent-arm64 dist/claude-agent-amd64
+
+      - name: Compute SHA256
+        id: sha
+        run: |
+          SHA=$(shasum -a 256 dist/claude-agent | awk '{print $1}')
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+          echo "SHA256: $SHA"
+
+      - name: Package tarball
+        run: |
+          cd dist
+          tar -czf claude-agent-${{ github.ref_name }}-darwin.tar.gz claude-agent
+
+      - name: Update Homebrew tap
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: |
+          VERSION=${{ github.ref_name }}
+          SHA=${{ steps.sha.outputs.sha }}
+          git clone https://tarak-no1:${TAP_TOKEN}@github.com/tarak-no1/homebrew-tap.git
+          cd homebrew-tap
+          sed -i '' \
+            -e "s|url \".*\"|url \"https://github.com/tarak-no1/claude-agent/releases/download/${VERSION}/claude-agent-${VERSION}-darwin.tar.gz\"|" \
+            -e "s|sha256 \".*\"|sha256 \"${SHA}\"|" \
+            -e "s|version \".*\"|version \"${VERSION#v}\"|" \
+            Formula/claude-agent.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/claude-agent.rb
+          git commit -m "chore: update claude-agent to ${VERSION}"
+          git push
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/claude-agent-${{ github.ref_name }}-darwin.tar.gz
+          body: |
+            ## Install
+
+            ```bash
+            brew install tarak-no1/tap/claude-agent
+            ```
+
+            Or download manually, unzip, and run:
+            ```bash
+            chmod +x claude-agent
+            ./claude-agent <session-token>
+            ```
+
+            ## SHA256
+            `${{ steps.sha.outputs.sha }}`
