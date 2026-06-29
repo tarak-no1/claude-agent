@@ -25,17 +25,17 @@ jobs:
           GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o dist/claude-agent-amd64 ./cmd/agent
           lipo -create -output dist/claude-agent dist/claude-agent-arm64 dist/claude-agent-amd64
 
-      - name: Compute SHA256
-        id: sha
-        run: |
-          SHA=$(shasum -a 256 dist/claude-agent | awk '{print $1}')
-          echo "sha=$SHA" >> $GITHUB_OUTPUT
-          echo "SHA256: $SHA"
-
       - name: Package tarball
         run: |
           cd dist
           tar -czf claude-agent-${{ github.ref_name }}-darwin.tar.gz claude-agent
+
+      - name: Compute SHA256
+        id: sha
+        run: |
+          SHA=$(shasum -a 256 dist/claude-agent-${{ github.ref_name }}-darwin.tar.gz | awk '{print $1}')
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+          echo "SHA256: $SHA"
 
       - name: Update Homebrew tap
         env:
