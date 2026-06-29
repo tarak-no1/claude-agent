@@ -43,18 +43,26 @@ jobs:
         run: |
           VERSION=${{ github.ref_name }}
           SHA=${{ steps.sha.outputs.sha }}
-          git clone https://tarak-no1:${TAP_TOKEN}@github.com/tarak-no1/homebrew-tap.git
-          cd homebrew-tap
-          sed -i '' \
-            -e "s|url \".*\"|url \"https://github.com/tarak-no1/claude-agent/releases/download/${VERSION}/claude-agent-${VERSION}-darwin.tar.gz\"|" \
-            -e "s|sha256 \".*\"|sha256 \"${SHA}\"|" \
-            -e "s|version \".*\"|version \"${VERSION#v}\"|" \
-            Formula/claude-agent.rb
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/claude-agent.rb
-          git commit -m "chore: update claude-agent to ${VERSION}"
-          git push
+          FILE=Formula/claude-agent.rb
+
+          # Fetch current file content + blob SHA from tap repo
+          RESPONSE=$(curl -s -H "Authorization: token ${TAP_TOKEN}" \
+            "https://api.github.com/repos/tarak-no1/homebrew-tap/contents/${FILE}")
+          BLOB_SHA=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['sha'])")
+          CONTENT=$(echo "$RESPONSE" | python3 -c "import sys,json,base64; print(base64.b64decode(json.load(sys.stdin)['content']).decode())")
+
+          # Update formula fields
+          UPDATED=$(echo "$CONTENT" \
+            | sed "s|url \".*\"|url \"https://github.com/tarak-no1/claude-agent/releases/download/${VERSION}/claude-agent-${VERSION}-darwin.tar.gz\"|" \
+            | sed "s|sha256 \".*\"|sha256 \"${SHA}\"|" \
+            | sed "s|version \".*\"|version \"${VERSION#v}\"|")
+
+          ENCODED=$(echo "$UPDATED" | base64)
+
+          # Push update via API
+          curl -s -X PUT -H "Authorization: token ${TAP_TOKEN}" \
+            "https://api.github.com/repos/tarak-no1/homebrew-tap/contents/${FILE}" \
+            -d "{\"message\":\"chore: update claude-agent to ${VERSION}\",\"content\":\"${ENCODED}\",\"sha\":\"${BLOB_SHA}\"}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
